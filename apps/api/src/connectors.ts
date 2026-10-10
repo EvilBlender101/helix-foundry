@@ -155,6 +155,7 @@ export async function discover(kind: string, c: ConnectorConfig) {
     try {
       const tables: { name: string; size?: number }[] = [];
       let cursor: string | undefined;
+      const seen = new Set<string>();
       do {
         const r = await client.send(
           new ListObjectsV2Command({
@@ -172,6 +173,13 @@ export async function discover(kind: string, c: ConnectorConfig) {
           !r.IsTruncated || cursor,
           "Bucket listing was incomplete. Try a narrower prefix.",
         );
+        if (cursor) {
+          assert(
+            !seen.has(cursor),
+            "Bucket listing repeated a continuation token. Try a narrower prefix.",
+          );
+          seen.add(cursor);
+        }
         assert(
           tables.length <= 10000,
           "More than 10,000 files found. Use a narrower prefix to select files.",
@@ -228,13 +236,13 @@ export async function importSource(
     ["csv", "json", "jsonl", "parquet"].includes(ext),
     "Choose CSV, JSON, JSONL or Parquet",
   );
+  await progress?.({ message: "Reading complete snapshot", records: 0 });
   const file = randomUUID() + "." + ext,
     path = resolve(config.dataDir, "incoming", scope, file),
     out = createWriteStream(path);
   let count = 0;
   let schema: { name: string; type: string }[] | undefined;
   let lastProgress = 0;
-  await progress?.({ message: "Reading complete snapshot", records: 0 });
   const write = async (row: any) => {
     if (Date.now() - lastProgress > 1000) {
       lastProgress = Date.now();

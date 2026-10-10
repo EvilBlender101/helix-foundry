@@ -1,6 +1,8 @@
 # Implementation and validation
 
-This is an executable single-server MVP. Validation results below are from the local development machine on 23–24 September 2026; they are not a production SLA.
+This is an executable single-server MVP. The validation results below come from the local development machine and are not a production SLA. Most were recorded on 23–24 September 2026. The publication read benchmark (in [Benchmark](#benchmark)) and the tests of the rewritten backup, restore and upgrade scripts are from 10 October 2026, and both give that date.
+
+The rewritten `scripts/backup.sh`, `restore.sh` and `upgrade.sh` have so far run only against a stub `docker` in tests. Until they are run against a real Compose installation, that is their only coverage; see [backup, restore and upgrade scripts](#backup-restore-and-upgrade-scripts-10-october-2026).
 
 ## Verified paths
 
@@ -12,7 +14,7 @@ This is an executable single-server MVP. Validation results below are from the l
 - REST offset pagination and cross-origin credential protection; S3-compatible listing and streaming with a local protocol fixture.
 - Native Ollama, Claude Messages tool-output, and OpenAI Responses JSON-schema adapters have protocol tests. Provider errors do not trigger fallback.
 - Chromium: login, empty and connected states, all six Add data options including MySQL/TLS, tested business-model review, publication, saved dashboard selection and deep links, related-record navigation, previewed edits and history, unchanged snapshot results, and viewer controls. Desktop and 390px mobile layouts were visually inspected; modal Escape/focus restoration and mobile navigation are covered.
-- Docker image builds and the four data-platform services start. A Compose installation ingested and queried sample data. Backup/restore of its Helix and Parquet volumes retained one workspace, three datasets, and 340 rows.
+- Docker image builds and the four data-platform services start. A Compose installation ingested and queried sample data. Backup/restore of its Helix and Parquet volumes retained one workspace, three datasets, and 340 rows. That run, in September 2026, used the earlier `backup.sh` and `restore.sh`, which copied `.env` into the backup. The rewritten scripts have not run against a real installation; their stub tests are described [below](#backup-restore-and-upgrade-scripts-10-october-2026).
 
 ## Connect, understand, and act redesign
 
@@ -46,6 +48,8 @@ On an Apple Silicon M1 Pro development machine with 16 GB RAM:
 
 This benchmark excludes inference and measures the executor workload, not 25 browser sessions. The recorded 149 MB RSS is the benchmark client only and must not be represented as combined platform memory. Run `BENCH_HTTP=1 pnpm benchmark` with the executor available to reproduce it. Hardware, warm caches, storage, and query shape change results.
 
+The benchmark also times how publication reads a type with a million records. On the same machine, in process (10 October 2026), one materialize query read back as JSON lines took 2.1 s. The path it replaced ran 2,000 queries that each loaded and profiled the whole table, 196 ms each, about 6.5 minutes before HTTP and child-process start-up. Neither figure includes writing the records to HelixDB.
+
 ## Guided onboarding validation (24 September 2026)
 
 The resumable setup adds durable provider preparation and upload/import progress, explicit source selections, grounded outcome recommendations, inline revision and tested preview, and publication-bound completion. The suite passes 46 default tests, three isolated browser tests, four MySQL/PostgreSQL integration checks, and a real pinned-Qwen onboarding evaluation. TypeScript and the production build pass.
@@ -53,6 +57,21 @@ The resumable setup adds durable provider preparation and upload/import progress
 The local evaluation completed in 117 seconds with one recommendation call, five build/repair calls, 7,631 reported model tokens, ten passing validation checks, and one published dashboard. It used no hosted provider. Browser tests use a deterministic provider fixture plus real DuckDB; those are separate evidence from the real model run. Both desktop and 390px setup/review layouts were inspected. Existing publication, related-record edits, saved view selection and viewer screens still pass.
 
 Browser acceptance now starts a separate installation on ports 3101/3102/5174 with its own metadata store and data directory. It cannot bootstrap or seed the live installation. No demo account or live sample data was created during this change. See [onboarding](onboarding.md) for routes, idempotency, recovery and fixture commands.
+
+## Backup, restore and upgrade scripts (10 October 2026)
+
+The rewritten `scripts/backup.sh`, `restore.sh` and `upgrade.sh` leave the keys out of backups, and `upgrade.sh` backs up before every upgrade. They have not yet run against a real Docker or Compose installation: until they do, the stub tests below are their only coverage.
+
+What was validated: `tests/scripts.test.ts` runs the scripts against a stub `docker` (`tests/fixtures/fake-docker.sh`) in throwaway git checkouts with a bare upstream. It checks the Docker calls each script makes and their order, that no key, client secret or passphrase reaches a backup, the output or another command (also under `bash -x`), file modes, failure paths that must change nothing, must start the services again or must remove what a failed backup wrote, an unset `HOME`, finishing an unfinished upgrade, the HelixDB image checks, that the `foundry-data` archive leaves out the executor's `scratch` and `results` (archiving local folders with this machine's `tar` in place of the image's BusyBox `tar`), and going back with the commands `upgrade.sh` prints, also to a release from before `upgrade.sh` (with that release's scripts in `tests/fixtures/release-before-upgrade`). These tests ran on macOS with bash 3.2 and BSD tools, under OpenSSL 3 and LibreSSL 3.3. CI runs them on `ubuntu-latest`. The HelixDB storage facts the scripts encode come from the HelixDB release notes.
+
+Not yet validated:
+
+- What Docker records as the image of the HelixDB container under Compose v2 (`docker inspect --format '{{.Config.Image}}'`). The scripts compare it with the pin in `compose.yaml` by digest, then by version. If Docker recorded only an image ID, `restore.sh` would refuse new backups with "cannot tell which HelixDB version is newer", and `upgrade.sh` would never report "Already up to date".
+- Archiving and restoring real volumes with `alpine:3.22`, including BusyBox `tar`'s handling of the `scratch` and `results` excludes, stopping and restarting real services, and the rebuild and restart in `upgrade.sh` and `restore.sh`.
+- A real upgrade across a HelixDB pin change, and going back from it.
+- `--env-file <(COMMAND)` with a real password manager, and the scripts on Linux outside CI.
+
+Before relying on them, run `backup.sh`, `restore.sh` and an `upgrade.sh` that finds the installation up to date once against a real Compose v2 installation, and check what `docker inspect --format '{{.Config.Image}}' $(docker compose ps -q helix)` prints.
 
 ## Remaining validation and MVP limits
 

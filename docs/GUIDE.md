@@ -34,7 +34,7 @@ Helix Foundry is an AI-assisted data workspace that runs on your own computer, b
 - **Ontology:** real ontology objects and native relationships in HelixDB, with audited edit overlays that survive rematerialisation.
 - **Security:** workspace-scoped, optionally read-only, revocable API tokens, encrypted connector and model credentials, loopback host checks, and origin checks for browser changes.
 - **Jobs:** persistent jobs with leases and crash recovery, scheduled source refreshes, background repair drafts, query isolation and budget controls.
-- **Developer access:** OpenAPI at `/api/docs` and `/api/openapi.json`, a TypeScript SDK, definition import and export, and backup and restore scripts.
+- **Developer access:** OpenAPI at `/api/docs` and `/api/openapi.json`, a TypeScript SDK, definition import and export, and backup, restore and upgrade scripts.
 
 ## Finding your way around
 
@@ -104,7 +104,7 @@ Stripe, WorkOS and PostHog appear beside the database hosts in **Add data**.
 
 Database imports automatically try PostgreSQL logical replication or MySQL row-binlog capture. Foundry creates its own PostgreSQL publication and slot when permitted, and never modifies server-wide settings. Native change capture coalesces committed changes into complete, bounded-memory snapshot imports, including updates, deletes and truncations. This release does not yet apply row deltas directly, so large or rapidly changing tables may lag during materialisation.
 
-If replication is unavailable, snapshots refresh every five minutes (or on an existing UTC schedule set through the API), with a visible reason and automatic retries. REST and S3 sources also use snapshot refreshes; uploads stay explicit. Schema changes are staged for review. Business record overrides and publication protections remain separate. Writing back to sources, per-row AI enrichment and distributed compute are not supported yet.
+If replication is unavailable, snapshots refresh every five minutes (or on an existing UTC schedule set through the API), with a visible reason and automatic retries. REST and S3 sources also use snapshot refreshes; uploads stay explicit. Automatic refreshes of the sources that setup's workspace build reads wait until the build finishes, for up to 15 minutes. Schema changes are staged for review. Business record overrides and publication protections remain separate. Writing back to sources, per-row AI enrichment and distributed compute are not supported yet.
 
 [Operations](OPERATIONS.md) lists the database permissions change capture needs and how to manage WAL and binlog retention.
 
@@ -120,9 +120,11 @@ If replication is unavailable, snapshots refresh every five minutes (or on an ex
 - `timeoutSeconds`: the time budget for each run and the timeout for each model call, 30 to 1,800 seconds, default 600.
 - `dailyTokens`: tokens per workspace per UTC day, 1,000 to 10,000,000, default 200,000.
 
+**Hands-free voice.** With the OpenAI provider, and a project that has access to GPT-Live (`gpt-live-1`), a small blue orb appears after the Ask box on Home and above the chat composer. Pressing it asks for the microphone and starts a voice conversation; the orb glows for as long as the session is connected. GPT-Live holds the conversation and hands business questions to Foundry, which answers each with an ordinary read-only Analyst run in the same chat, so tables, charts and sources appear as usual. GPT-Live then speaks the verified result; it is told never to state workspace figures the backend did not return. Follow-ups continue without pressing Send, and starting voice inside a chat keeps that chat's context. Typing pauses the microphone until the text is sent or cleared. Press the orb or Escape, say that you want to stop, or leave the chat to end voice. Voice never builds or changes anything. A one-row answer is said aloud with its numbers; a table gets a one-sentence headline and stays in the chat. **Voice sends that final answer to OpenAI even when `allowRawData` is off**, because speaking it is the point of voice; only the question's result is sent, never source samples. The OpenAI key stays on the server, which creates each session and controls it over a server-side WebSocket. Voice is billed by OpenAI per second of session, plus the model calls that interpret each spoken request.
+
 **Validation.** Model-generated definitions are schema-checked and executed against the data. A passing syntax and quality check does not prove business meaning, so proposals show their assumptions and unmatched relationships for review. Guided setup publishes only what passes validation, built from the ontology you confirmed. Model quality and latency depend on your hardware and the selected model. The default Qwen digest is recorded in [`models.json`](models.json), and installation verifies it before activation.
 
-**Publishing and rollback.** Publishing checks the exact proposal hash and input versions, then switches generations. Revalidating creates a new reviewable proposal. Rollback revalidates and rematerialises the previous definitions against current snapshots, while preserving manual actions and their audit history. Failed staging artifacts can be removed during offline maintenance, after checking that no publication references them.
+**Publishing and rollback.** Publishing checks the exact proposal hash and input versions, then switches generations. Each object type and relationship is one executor query, whose rows the worker reads back and stages in batches; a type whose record count differs from its snapshot stops the publication, and the previous generation stays active. Revalidating creates a new reviewable proposal. Rollback revalidates and rematerialises the previous definitions against current snapshots, while preserving manual actions and their audit history. Failed staging artifacts can be removed during offline maintenance, after checking that no publication references them.
 
 ## Architecture
 
@@ -138,15 +140,15 @@ In Docker Compose, the worker runs as its own service. In development (`pnpm dev
 
 Data lives in three Docker volumes:
 
-| Volume                       | Contents                                                                           |
-| ---------------------------- | ---------------------------------------------------------------------------------- |
-| `helix-foundry_helix-data`   | HelixDB metadata: workspaces, ontology, jobs, API tokens and encrypted credentials |
-| `helix-foundry_foundry-data` | Parquet snapshots, artifacts and staged uploads                                    |
-| `helix-foundry_model-data`   | Ollama model weights (not backed up; they can be downloaded again)                 |
+| Volume                       | Contents                                                                                                                                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `helix-foundry_helix-data`   | HelixDB metadata: workspaces, ontology, jobs, API tokens and encrypted credentials                                                                      |
+| `helix-foundry_foundry-data` | Parquet snapshots, artifacts and staged uploads; also the executor's spill files (`scratch`) and publication files (`results`), which backups leave out |
+| `helix-foundry_model-data`   | Ollama model weights (not backed up; they can be downloaded again)                                                                                      |
 
 **HelixDB.** Queries use the HelixDB TypeScript SDK 3.2 and `/v2/query`. A scope revision is compared and advanced inside each write batch, so stale metadata writes fail as a unit. Dataset artifacts and staged ontology generations stay invisible until the publication pointer changes. Source imports remain separate from manual object overlays.
 
-**Executor isolation.** The executor loads approved input snapshots, disables external access and extension installation, locks its configuration, and wraps generated SQL as a single SELECT. It has no connector or API credentials. Two DuckDB jobs run at a time, each with a 512 MB memory setting and a 120-second timeout. In Compose the executor container is limited to 2 GB of memory and 128 processes, drops all Linux capabilities and cannot gain new privileges. Never expose its endpoint.
+**Executor isolation.** The executor loads approved input snapshots, disables external access and extension installation, locks its configuration, and wraps generated SQL as a single SELECT. It has no connector or API credentials. Two DuckDB jobs run at a time, each with a 512 MB memory setting and spill files on the data volume beyond it, which only DuckDB's own bound (90% of the free disk space) limits unless `DUCKDB_SPILL_LIMIT` is set. By default, a publication query may write up to 2 GB of result rows, and queries have two minutes and imports, pipelines and publication queries 15 minutes, including time waiting for a turn; `.env` can change each limit (see [operations](OPERATIONS.md#deployment-limits)). In Compose the executor container is limited to 2 GB of memory and 128 processes, drops all Linux capabilities and cannot gain new privileges. Never expose its endpoint.
 
 ## Security
 
@@ -178,6 +180,7 @@ pnpm dev
 
 Open **http://localhost:5173**. The Vite dev server proxies `/api` to the API on 3001, and the executor listens on 3002. Use 5173 rather than 3001 during development: the API may also serve an old build on 3001, and saves from it fail the origin check.
 
+- The development HelixDB uses the image pinned in `compose.yaml`; `pnpm test` fails if the copy above, or those in the README and AGENTS.md, differ from it. A newer image upgrades the `helix-foundry-dev` volume one way (v0.0.10 and later upgrade the index storage, and older images then refuse it), so copy the volume before you change the tag.
 - `./scripts/setup.sh` without flags writes `.env` with development URLs (`APP_ORIGIN=http://localhost:5173`, HelixDB on 6996, executor on 3002, Ollama on 11434) and two generated keys. It never overwrites an existing `.env`.
 - `pnpm doctor` checks HelixDB, the executor, the model endpoint and the local keys, using the development URLs in `.env`. It is for development only; for a Docker install, use the in-container check in the [agent runbook](../AGENTS.md#6-verify).
 - Startup applies the metadata schema idempotently; `pnpm migrate` applies it explicitly.
@@ -207,10 +210,13 @@ BENCH_HTTP=1 pnpm benchmark  # 1M rows, 25 concurrent executor clients
 ## Backups and upgrades
 
 ```sh
+./scripts/upgrade.sh                                                  # backs up first, then pulls and rebuilds
 ./scripts/backup.sh ~/helix-foundry-backups/$(date +%Y%m%d-%H%M%S)   # stops writers, snapshots volumes, restarts
 ./scripts/restore.sh ~/helix-foundry-backups/TIMESTAMP --replace
 ```
 
-Backups contain the encryption key, so keep them private and outside the repository. Restore explicitly replaces the selected installation's data and `.env`. Before an upgrade, back up, keep the old commit, lockfile and image, rebuild, and run smoke checks (diagnostics, sample ingestion, a saved query and proposal validation) before using the installation again. Never remove volumes during an ordinary upgrade.
+Backups leave out `ENCRYPTION_KEY` and `INTERNAL_KEY`. They record a fingerprint of the key, the app commit and the HelixDB image, so keep a separate copy of `.env`, for example in a password manager. `backup.sh --include-key` adds `.env` encrypted with a passphrase. Backups made by an older `backup.sh` hold both keys in plain text in `config.env`, often in the repository's `backups/` folder; `backup.sh` and `upgrade.sh` warn about them, so delete them once you have a new backup and a separate copy of `.env`. Keep backups private and outside the repository; `backup.sh` refuses a folder inside it. Restore replaces the selected installation's data. It keeps `.env` when the key matches, takes your copy with `--env-file`, and refuses a backup made with another key or in a newer HelixDB storage format. It checks the archives before it stops anything, and replaces `.env` only once the data is restored, keeping the old one as `.env.pre-restore-TIME`; delete that file once the restore is confirmed.
+
+Upgrade with `upgrade.sh`, which refuses to continue unless a fresh backup succeeds. If the rebuild fails, run it again: it finishes the upgrade. To go back, run the two commands it printed: `git reset --keep` with the old commit, then the copy of `restore.sh` saved in the backup (`bash BACKUP/restore.sh BACKUP --replace`), which also reads the backup in a checkout of a release from before `upgrade.sh`. HelixDB upgrades its storage one way (v0.0.10 and later upgrade the index storage, and v0.0.9 and earlier then refuse the database), so when a release changes the HelixDB image, `upgrade.sh` warns and asks first. Keep the backup and the old commit, and run smoke checks (diagnostics, sample ingestion, a saved query and proposal validation) before using the installation again. Never remove volumes during an ordinary upgrade.
 
 See [operations](OPERATIONS.md) for the full procedure and deployment limits, and [validation notes](VALIDATION.md) for tested coverage and current limits.

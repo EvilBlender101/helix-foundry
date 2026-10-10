@@ -14,6 +14,7 @@ import {
 import type { Resource } from "../../../packages/shared/src/index.js";
 import { config } from "./config.js";
 import { AppError } from "./security.js";
+import { oomWatcher } from "./memory.js";
 export const now = () => new Date().toISOString();
 export function resource(
   scope: string,
@@ -45,17 +46,38 @@ export interface Store {
 }
 const anchor = (key: string) =>
   g().nWithLabelWhere("FoundryRecord", SourcePredicate.eq("key", key));
+// Metadata schema version. scripts/backup.sh records it from this line.
+export const SCHEMA_VERSION = 1;
+export const databaseOutOfMemory =
+  "The database stopped because Docker ran out of memory, and is restarting. Retry in a minute. To prevent this, give Docker more memory, or use Claude or OpenAI instead of Local AI.";
 export class HelixStore implements Store {
   client = Client.server(config.helix);
+  constructor(private memoryKilled = oomWatcher()) {}
   async read(q: any): Promise<any> {
-    return this.client.query(q.toQueryRequest()).send();
+    return this.send(() => this.client.query(q.toQueryRequest()).send());
   }
   async write(q: any): Promise<any> {
-    return this.client
-      .requestBuilder()
-      .shouldAwaitDurability(true)
-      .query(q.toQueryRequest())
-      .send();
+    return this.send(() =>
+      this.client
+        .requestBuilder()
+        .shouldAwaitDurability(true)
+        .query(q.toQueryRequest())
+        .send(),
+    );
+  }
+  // HelixDB is the largest process in Docker, so when memory runs out the
+  // kernel often stops it. Say so instead of the client's "start a local
+  // instance with `helix start`".
+  async send<T>(request: () => Promise<T>): Promise<T> {
+    try {
+      return await request();
+    } catch (e: any) {
+      if (e?.kind === "Network" && this.memoryKilled())
+        throw Object.assign(new AppError(503, databaseOutOfMemory), {
+          cause: e,
+        });
+      throw e;
+    }
   }
   async init() {
     for (const property of ["key", "scope", "scopeKind"])
@@ -73,7 +95,7 @@ export class HelixStore implements Store {
       );
     await transaction(this, "global", async (tx) => {
       const current = await tx.get("schema");
-      if (current && current.data.version > 1)
+      if (current && current.data.version > SCHEMA_VERSION)
         throw new Error(
           "Database schema is newer than this application; restore the matching release",
         );
@@ -83,7 +105,7 @@ export class HelixStore implements Store {
             "global",
             "migration",
             "Initial workspace schema",
-            { version: 1, appliedAt: now() },
+            { version: SCHEMA_VERSION, appliedAt: now() },
             "schema",
           ),
         );
