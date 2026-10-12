@@ -15,6 +15,7 @@ import { config } from "../config.js";
 import { assert, seal } from "../security.js";
 import { resource, transaction, type Store } from "../store.js";
 import { discover } from "../connectors.js";
+import { storedDiscovery } from "../source-discovery.js";
 import {
   ingestFile,
   ingestRows,
@@ -249,7 +250,7 @@ export function registerDataRoutes(
             kind: b.kind,
             secret: seal(resolved.config),
             hostedProvider: resolved.provider,
-            discovery,
+            discovery: storedDiscovery(b.kind, discovery, resolved.config),
             ...sourceSyncDefaults(b.kind, b.schedule),
           }),
         ),
