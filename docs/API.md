@@ -41,18 +41,18 @@ These routes require owner permissions and a writable credential or the local br
 
 ### Data
 
-| Method / path                       | Input / result                                                          |
-| ----------------------------------- | ----------------------------------------------------------------------- |
-| POST `/ingest`                      | `{ name, rows: object[], datasetId? }`; maximum 10,000 rows per request |
-| POST `/upload`                      | Multipart file; CSV, JSON, JSONL, Parquet; maximum 256 MB               |
-| POST `/sources/test`                | `{ name, kind, config }`; discovery and key information                 |
-| POST `/sources`                     | `{ name, kind, config, schedule? }`; encrypted source definition        |
-| POST `/sources/:id/sync`            | `{}`; durable job                                                       |
-| POST `/datasets/:id/preview`        | `{ offset?, limit? }`; rows and profile                                 |
-| GET `/datasets/:id/export`          | Download active Parquet snapshot                                        |
-| PATCH `/datasets/:id`               | `{ description }`; preserve manually authored description               |
-| POST `/datasets/:id/accept-version` | `{}`; accept staged schema-changing snapshot                            |
-| POST `/query`                       | `{ inputs: datasetId[], sql }`; read-only result and profile            |
+| Method / path                       | Input / result                                                                |
+| ----------------------------------- | ----------------------------------------------------------------------------- |
+| POST `/ingest`                      | `{ name, rows: object[], datasetId? }`; maximum 10,000 rows per request       |
+| POST `/upload`                      | Multipart file; CSV, JSON, JSONL, Parquet; maximum 256 MB                     |
+| POST `/sources/test`                | `{ name, kind, config }`; discovery and key information                       |
+| POST `/sources`                     | `{ name, kind, config, schedule? }`; encrypted source definition              |
+| POST `/sources/:id/sync`            | `{}`; durable job                                                             |
+| POST `/datasets/:id/preview`        | `{ offset?, limit? }`; rows and profile                                       |
+| GET `/datasets/:id/export`          | Download active snapshot; default Parquet, `?format=csv` for every row as CSV |
+| PATCH `/datasets/:id`               | `{ description }`; preserve manually authored description                     |
+| POST `/datasets/:id/accept-version` | `{}`; accept staged schema-changing snapshot                                  |
+| POST `/query`                       | `{ inputs: datasetId[], sql }`; read-only result and profile                  |
 
 ### Pipelines
 
@@ -130,3 +130,9 @@ const run = await foundry.requestAssistance("Create a revenue dashboard", {
 ```
 
 **Definition comparison.** `FoundryClient.proposalComparison(id)` returns `activeGeneration`, `validatedGeneration`, `stale`, exact `staleInputs`, `counts`, `changes` and `metadata`. Each asset change has `kind`, `name`, `status` (`added`, `changed`, `removed`), `before`, `after` and changed top-level `fields`. Catalog identity is `datasetId`; other asset identities are their exact names. Arrays retain order and SQL is compared as text. Missing active publication provenance returns 409; ambiguous duplicate asset names return 422. The endpoint does not execute, validate, publish or estimate affected records.
+
+CSV downloads use one immutable active snapshot and include its version in
+`x-foundry-version`. Column names are headers. Non-null fields are quoted,
+nulls are empty fields, and nested values are JSON within a quoted field.
+Integer values retain their exact decimal representation. Large exports use
+bounded batches and the executor's existing result-size and time limits.
