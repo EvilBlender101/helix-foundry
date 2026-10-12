@@ -14,6 +14,7 @@ import {
   type Resource,
 } from "../../../../packages/shared/src/index.js";
 import { config } from "../config.js";
+import { proposalComparison } from "../proposal-comparison.js";
 import { assert, digest, token, seal } from "../security.js";
 import { resource, transaction, type Store } from "../store.js";
 import {
@@ -484,6 +485,13 @@ export function registerWorkspaceRoutes(
     req.raw.on("close", () => clearInterval(timer));
     void send();
   });
+  app.get(
+    "/api/v1/workspaces/:w/proposals/:id/comparison",
+    async (req: any) => {
+      const a = await access(req);
+      return proposalComparison(store, a.scope, req.params.id);
+    },
+  );
   app.put("/api/v1/workspaces/:w/proposals/:id", async (req: any) => {
     const a = await access(req, "editor"),
       old = await store.get(a.scope, req.params.id);
