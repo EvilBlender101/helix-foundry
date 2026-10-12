@@ -47,6 +47,7 @@ These routes require owner permissions and a writable credential or the local br
 | POST `/upload`                                 | Multipart file; CSV, JSON, JSONL, Parquet; maximum 256 MB                                                           |
 | POST `/sources/test`                           | `{ name, kind, config }`; discovery and key information                                                             |
 | POST `/sources`                                | `{ name, kind, config, schedule? }`; encrypted source definition                                                    |
+| PUT `/sources/:id/schedule`                    | `{ schedule: string \| null }`; owner-only UTC cadence for every table in this connection                           |
 | POST `/sources/:id/sync`                       | `{}`; durable job                                                                                                   |
 | POST `/datasets/:id/preview`                   | `{ offset?, limit? }`; rows and profile                                                                             |
 | GET `/datasets/:id/export`                     | Download active snapshot; default Parquet, `?format=csv` for every row as CSV                                       |
@@ -137,3 +138,9 @@ CSV downloads use one immutable active snapshot and include its version in
 nulls are empty fields, and nested values are JSON within a quoted field.
 Integer values retain their exact decimal representation. Large exports use
 bounded batches and the executor's existing result-size and time limits.
+
+### Change a connection refresh schedule
+
+Owners can change snapshot cadence in **Data → connection → Details**, through `PUT /sources/:id/schedule`, or with `FoundryClient.setConnectionSchedule(sourceId, schedule)`. A cron expression uses UTC; `null` restores the connector's Automatic default. The change applies atomically to every source table sharing that connection, including older groups recorded by import operations, and preserves credentials, source identities, existing dataset snapshots, jobs and live-capture state. It does not retest or reconnect the source.
+
+For snapshot mode, the next refresh is recalculated from the saved cadence. You can still refresh by hand: **Refresh** on the Data page, **Sync now** on the connection's page, or `POST /sources/:id/sync`. A refresh already running or queued can finish on its existing lifecycle. Live CDC and capability checks remain independent of cron; their next scheduled snapshot stays unset until snapshot fallback is used. The saved expression then governs fallback refreshes. Automatic uses five minutes for ordinary REST/S3/database fallback, one hour for Stripe, WorkOS and Neo4j, and six hours for PostHog. A schedule runs at most once a minute: a six-field expression's leading seconds field may name only one second. Invalid or more frequent expressions return 400 without changing the connection; non-owners cannot save a schedule.

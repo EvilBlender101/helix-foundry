@@ -221,6 +221,13 @@ export class FoundryClient {
   }) {
     return this.request<Resource>("/sources", source);
   }
+  setConnectionSchedule(sourceId: string, schedule: string | null) {
+    return this.request<Resource>(
+      "/sources/" + encodeURIComponent(sourceId) + "/schedule",
+      { schedule },
+      "PUT",
+    );
+  }
   sync(sourceId: string) {
     return this.request<Resource>("/sources/" + sourceId + "/sync", {});
   }
