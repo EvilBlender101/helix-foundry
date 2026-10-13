@@ -13,6 +13,7 @@ import type {
   HostedConnection,
   PlanetScaleToken,
   ApiTokenMetadata,
+  ConnectedSourceInput,
 } from "@helix-foundry/shared";
 export type {
   Bundle,
@@ -29,6 +30,7 @@ export type {
   HostedConnection,
   PlanetScaleToken,
   ApiTokenMetadata,
+  ConnectedSourceInput,
 };
 export class FoundryError extends Error {
   constructor(
@@ -128,22 +130,7 @@ export class FoundryClient {
       input,
     );
   }
-  correctSource(
-    id: string,
-    source: {
-      name: string;
-      kind:
-        | "mysql"
-        | "postgres"
-        | "rest"
-        | "s3"
-        | "stripe"
-        | "workos"
-        | "posthog";
-      config: Record<string, unknown>;
-      schedule?: string | null;
-    },
-  ) {
+  correctSource(id: string, source: ConnectedSourceInput) {
     return this.request<Resource>(
       "/onboarding/sources/" + encodeURIComponent(id),
       source,
@@ -206,19 +193,7 @@ export class FoundryClient {
   ingest(name: string, rows: Record<string, unknown>[], datasetId?: string) {
     return this.request<Resource>("/ingest", { name, rows, datasetId });
   }
-  createSource(source: {
-    name: string;
-    kind:
-      | "postgres"
-      | "mysql"
-      | "rest"
-      | "s3"
-      | "stripe"
-      | "workos"
-      | "posthog";
-    config: Record<string, unknown>;
-    schedule?: string;
-  }) {
+  createSource(source: ConnectedSourceInput) {
     return this.request<Resource>("/sources", source);
   }
   setConnectionSchedule(sourceId: string, schedule: string | null) {
@@ -324,18 +299,7 @@ export class FoundryClient {
       "PUT",
     );
   }
-  testSource(source: {
-    name: string;
-    kind:
-      | "postgres"
-      | "mysql"
-      | "rest"
-      | "s3"
-      | "stripe"
-      | "workos"
-      | "posthog";
-    config: Record<string, unknown>;
-  }) {
+  testSource(source: ConnectedSourceInput) {
     return this.request("/sources/test", source);
   }
   provider() {
