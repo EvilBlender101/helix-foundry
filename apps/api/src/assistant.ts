@@ -1478,7 +1478,7 @@ export async function buildWorkspace(store: Store, scope: string, id: string) {
           definitions: Object.fromEntries(
             group.fields.map((key) => [key, (bundle as any)[key]]),
           ),
-          failures,
+          failures: failures.map((f) => ({ ...f, detail: redact(f.detail) })),
         };
         let repaired;
         try {
