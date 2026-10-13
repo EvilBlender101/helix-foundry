@@ -16,7 +16,10 @@ import {
 } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { resolve, dirname } from "node:path";
-import type { DatasetProfile } from "../../../packages/shared/src/index.js";
+import {
+  compactSample,
+  type DatasetProfile,
+} from "../../../packages/shared/src/index.js";
 import { resultFile, scratchRoot } from "./paths.js";
 export const quote = (v: string) => '"' + v.replaceAll('"', '""') + '"';
 const lit = (v: string) => "'" + v.replaceAll("'", "''") + "'";
@@ -323,6 +326,7 @@ export async function execute(
         `SELECT * FROM result LIMIT ${Math.min(job.limit || 50, 1000)} OFFSET ${Math.max(job.offset || 0, 0)}`,
       )
     ).getRowObjectsJson();
+    const stored = compactSample(sample);
     const columns = [];
     // How each column's values run in the result's row order, which rowid
     // follows. A column named rowid hides it, so that column is renamed
@@ -372,7 +376,7 @@ export async function execute(
         type: String(col.column_type),
         nulls: Number(p.null_count),
         distinct: Number(p.distincts),
-        examples: sample.slice(0, 3).map((r) => r[name]),
+        examples: stored.slice(0, 3).map((r) => r[name]),
         sensitive:
           /email|phone|ssn|password|secret|token|address|birth|credit/i.test(
             name,
@@ -410,7 +414,7 @@ export async function execute(
       rows,
       duplicateRows,
       columns,
-      sample,
+      sample: stored,
       // Tagged since it counts duplicate rows; untagged ones are older.
       fingerprint: "v2:" + digest([schema, rows, fp]),
     };
