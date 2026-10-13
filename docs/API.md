@@ -52,6 +52,7 @@ These routes require owner permissions and a writable credential or the local br
 | POST `/datasets/:id/preview`                   | `{ offset?, limit? }`; rows and profile                                                                             |
 | GET `/datasets/:id/export`                     | Download active snapshot; default Parquet, `?format=csv` for every row as CSV                                       |
 | PATCH `/datasets/:id`                          | `{ description }`; preserve manually authored description                                                           |
+| PUT `/datasets/:id/privacy`                    | Owner only; `{ additionalColumns: string[] }`; returns effective dataset profile                                    |
 | POST `/datasets/:id/versions/:version/preview` | `{ offset?, limit? }`; immutable selected snapshot rows, profile, timestamp and exact version citation; read access |
 | POST `/datasets/:id/accept-version`            | `{}`; accept staged schema-changing snapshot                                                                        |
 | POST `/query`                                  | `{ inputs: datasetId[], sql }`; read-only result and profile                                                        |
@@ -138,6 +139,8 @@ CSV downloads use one immutable active snapshot and include its version in
 nulls are empty fields, and nested values are JSON within a quoted field.
 Integer values retain their exact decimal representation. Large exports use
 bounded batches and the executor's existing result-size and time limits.
+
+Owners can use `FoundryClient.setDatasetPrivacy(datasetId, additionalColumns)` or `PUT /datasets/:id/privacy` to mark additional columns sensitive. Policy adds to heuristic detection and cannot disable detected protection. It applies to future hosted AI sample context and Home metric suggestions, persists independently of immutable version profiles, and follows ordinary refreshes, accepted schema changes and stable pipeline dataset identities. Names absent after a schema change remain protected if they return; they can be removed explicitly. Unknown new names are rejected. Local AI and hosted `allowRawData: true` retain their existing behavior. This does not restrict authorized dataset preview, query or export access or recall requests already sent.
 
 ### Change a connection refresh schedule
 
