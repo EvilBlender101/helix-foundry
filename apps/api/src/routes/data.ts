@@ -33,9 +33,45 @@ import {
 import { testedConnection } from "../onboarding.js";
 import { resolveHostedConfig } from "../hosting.js";
 import { datasetPrivacyId, withDatasetPrivacy } from "../dataset-privacy.js";
+import { removeData, renameDataset } from "../data-removal.js";
 import type { RequestSchemas, RouteDeps } from "./deps.js";
 
+// A readable name for a source, connection or dataset.
+const NameSchema = z
+  .string()
+  .trim()
+  .min(1, "Enter a name")
+  .max(200, "Use a name of at most 200 characters")
+  .refine(
+    (v) => !/[\u0000-\u001f]/.test(v),
+    "Names cannot contain control characters",
+  );
+const DatasetPatchSchema = z
+  .object({
+    name: NameSchema.optional(),
+    description: z.string().max(4000).optional(),
+  })
+  .refine((b) => b.name !== undefined || b.description !== undefined, {
+    message: "Change the name or the description",
+  });
+const SourcePatchSchema = z
+  .object({
+    name: NameSchema.optional(),
+    // The name shown for every source of a connection.
+    connectionName: NameSchema.optional(),
+  })
+  .refine((b) => b.name !== undefined || b.connectionName !== undefined, {
+    message: "Change the name or the connection name",
+  });
+const SourceDeleteSchema = z.object({
+  // Delete every source of this source's connection.
+  connection: z.boolean().default(false),
+});
+
 export const dataSchemas: RequestSchemas = {
+  "PATCH /api/v1/workspaces/:w/datasets/:id": DatasetPatchSchema,
+  "PATCH /api/v1/workspaces/:w/sources/:id": SourcePatchSchema,
+  "DELETE /api/v1/workspaces/:w/sources/:id": SourceDeleteSchema,
   "POST /api/v1/workspaces/:w/datasets/:id/versions/:version/preview": z.object(
     {
       offset: z.number().int().min(0).default(0),
@@ -210,16 +246,29 @@ export function registerDataRoutes(
   });
   app.patch("/api/v1/workspaces/:w/datasets/:id", async (req: any) => {
     const a = await access(req, "editor"),
-      b = z.object({ description: z.string().max(4000) }).parse(req.body);
+      b = DatasetPatchSchema.parse(req.body);
     return transaction(store, a.scope, async (tx) => {
       const ds = await tx.get(req.params.id);
       assert(ds?.kind === "dataset", "Dataset unavailable", 404);
-      return tx.put({
-        ...ds,
-        description: b.description,
-        revision: ds.revision + 1,
-        data: { ...ds.data, manualDescription: true },
-      });
+      const name = b.name ?? ds.name;
+      if (name !== ds.name)
+        tx.put(
+          resource(a.scope, "audit", `Renamed ${ds.name} to ${name}`, {
+            actor: a.user.id,
+            change: "rename",
+            datasetId: ds.id,
+            from: ds.name,
+            to: name,
+          }),
+        );
+      return renameDataset(tx, ds, name, b.description);
+    });
+  });
+  app.delete("/api/v1/workspaces/:w/datasets/:id", async (req: any) => {
+    const a = await access(req, "editor");
+    return removeData(store, a.scope, a.user.id, {
+      sourceIds: [],
+      datasetIds: [req.params.id],
     });
   });
   app.post(
@@ -298,6 +347,7 @@ export function registerDataRoutes(
             kind: b.kind,
             secret: seal(resolved.config),
             hostedProvider: resolved.provider,
+            hostedConnectionId: resolved.credentialId,
             discovery: storedDiscovery(b.kind, discovery, resolved.config),
             ...sourceSyncDefaults(b.kind, b.schedule),
           }),
@@ -331,6 +381,87 @@ export function registerDataRoutes(
         if (updated.id === source.id) result = updated;
       }
       return scrub(result);
+    });
+  });
+  app.patch("/api/v1/workspaces/:w/sources/:id", async (req: any) => {
+    const a = await access(req, "editor"),
+      b = SourcePatchSchema.parse(req.body);
+    return transaction(store, a.scope, async (tx) => {
+      const source = await tx.get(req.params.id);
+      assert(source?.kind === "source", "Source unavailable", 404);
+      const connection = await connectionSources(tx, source),
+        alone = connection.length === 1;
+      // A source alone in its connection is shown by its connection's name,
+      // so renaming it renames both.
+      const connectionName =
+        b.connectionName ??
+        (alone && b.name && source.data.connectionName ? b.name : undefined);
+      const before = source.data.connectionName || source.name;
+      let result = source;
+      for (const target of connection) {
+        const current = (await tx.get(target.id))!;
+        const name =
+          current.id === source.id ? (b.name ?? current.name) : current.name;
+        if (
+          name === current.name &&
+          (connectionName === undefined ||
+            connectionName === current.data.connectionName)
+        )
+          continue;
+        const updated = tx.put({
+          ...current,
+          name,
+          revision: current.revision + 1,
+          updatedAt: new Date().toISOString(),
+          data: {
+            ...current.data,
+            ...(connectionName !== undefined ? { connectionName } : {}),
+          },
+        });
+        if (updated.id === source.id) result = updated;
+        // Its dataset follows, unless it was given a name of its own.
+        if (name !== current.name)
+          for (const ds of await tx.list("dataset"))
+            if (
+              (ds.data.sourceId === current.id ||
+                ds.id === current.data.datasetId) &&
+              !ds.data.generation &&
+              ds.name === current.name
+            )
+              await renameDataset(tx, ds, name);
+      }
+      const after = result.data.connectionName || result.name;
+      if (result !== source)
+        tx.put(
+          resource(
+            a.scope,
+            "audit",
+            before === after
+              ? `Renamed ${source.name} to ${result.name}`
+              : `Renamed ${before} to ${after}`,
+            {
+              actor: a.user.id,
+              change: "rename",
+              sourceId: source.id,
+              from: before,
+              to: after,
+            },
+          ),
+        );
+      return scrub(result);
+    });
+  });
+  app.delete("/api/v1/workspaces/:w/sources/:id", async (req: any) => {
+    const a = await access(req, "owner"),
+      b = SourceDeleteSchema.parse(req.body ?? {});
+    const source = await store.get(a.scope, req.params.id);
+    assert(source?.kind === "source", "Source unavailable", 404);
+    const targets = b.connection
+      ? await transaction(store, a.scope, (tx) => connectionSources(tx, source))
+      : [source];
+    return removeData(store, a.scope, a.user.id, {
+      sourceIds: targets.map((s) => s.id),
+      datasetIds: [],
     });
   });
   app.post("/api/v1/workspaces/:w/sources/test", async (req) => {

@@ -16,6 +16,7 @@ This guide is the detailed companion to the [README](../README.md). It covers wh
   - [PostHog](#posthog)
   - [REST APIs, files, S3 and the ingestion API](#rest-apis-files-s3-and-the-ingestion-api)
   - [Sync and change capture](#sync-and-change-capture)
+  - [Rename and delete data](#rename-and-delete-data)
 - [AI and review](#ai-and-review)
 - [Architecture](#architecture)
 - [Security](#security)
@@ -112,6 +113,14 @@ Database imports automatically try PostgreSQL logical replication or MySQL row-b
 If replication is unavailable, snapshots refresh every five minutes (or on a UTC schedule chosen by an owner in **Data → connection → Details**, or through the API), with a visible reason and automatic retries. REST and S3 sources also use snapshot refreshes; uploads stay explicit. Owners can change snapshot cadence without re-entering credentials, using preset intervals or a custom UTC cron expression that runs at most once a minute; Automatic restores the connector default. The change applies to every table in the connection. Working CDC continues independently, while the saved cadence applies if snapshot fallback is needed. Existing queued/running imports finish normally, and you can still refresh by hand with **Refresh** on the Data page or **Sync now** on the connection's page. Automatic refreshes of the sources that setup's workspace build reads wait until the build finishes, for up to 15 minutes. Schema changes are staged for review. Business record overrides and publication protections remain separate. Writing back to sources, per-row AI enrichment and distributed compute are not supported yet.
 
 [Operations](OPERATIONS.md) lists the database permissions change capture needs and how to manage WAL and binlog retention.
+
+### Rename and delete data
+
+On the **Data** page, open a connection card's **⋯** menu and choose **Rename** to change the name the card shows. For a connection with one table, its dataset takes the new name too, unless you renamed the dataset yourself. To rename only a dataset, open it and use **Details → Manage → Rename**. Queries and dashboards that use the old name keep working.
+
+Owners can choose **Delete** in the same menu, or **Delete source and dataset** in a dataset's Details. A dataset without a source, such as an upload, has **Delete dataset**, which editors can use too. The confirmation names what goes: the source, its saved connection settings and scheduled refreshes, the dataset with its rows and snapshots, and imports still waiting to run. A hosted-database credential is removed with the last source that uses it. Nothing else is changed, and a delete can't be undone.
+
+If the published workspace reads the data, in an object type, relationship, pipeline or dashboard, Foundry refuses the delete and names what depends on it. Remove those from the ontology and publish, then delete. After deleting a PostgreSQL source that used change capture, drop the `hf_…` publication and replication slot on your server so it stops keeping WAL for them. Renames and deletes appear in the activity feed.
 
 ## AI and review
 

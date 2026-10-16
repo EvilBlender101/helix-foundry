@@ -17,6 +17,7 @@ import {
   DashboardSchema,
   datasetTable,
   datasetAliases,
+  datasetNameAliases,
   answerShape,
   type AnswerCheck,
   type AnswerStep,
@@ -172,7 +173,7 @@ function inputsFor(ids: string[], datasets: Map<string, Resource>) {
     return {
       table: datasetTable(id),
       version: d.data.activeVersion as string,
-      aliases: datasetAliases(d.name),
+      aliases: datasetNameAliases(d),
     };
   });
 }

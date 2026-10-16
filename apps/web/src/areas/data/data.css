@@ -233,3 +233,13 @@
 .dataset-privacy fieldset {
   margin-bottom: 14px;
 }
+.cn-delete ul {
+  margin: 8px 0 12px;
+  padding-left: 20px;
+}
+.cn-delete li + li {
+  margin-top: 4px;
+}
+.cn-delete strong {
+  overflow-wrap: anywhere;
+}

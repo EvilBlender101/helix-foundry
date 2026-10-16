@@ -41,6 +41,7 @@ export async function resolveHostedConfig(
     return {
       config: input,
       provider: undefined as HostingProvider | undefined,
+      credentialId: undefined as string | undefined,
     };
   const connection = await store.get(scope, input.hostedConnectionId);
   assert(
@@ -63,6 +64,8 @@ export async function resolveHostedConfig(
       ...(input.table ? { table: input.table } : {}),
     },
     provider: connection.data.provider as HostingProvider,
+    // Kept on the source, so deleting its last source removes the credential.
+    credentialId: connection.id,
   };
 }
 

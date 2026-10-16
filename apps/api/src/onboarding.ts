@@ -222,6 +222,7 @@ export function registerOnboarding(
               connectionName: body.name,
               secret: seal(settings),
               hostedProvider: resolved.provider,
+              hostedConnectionId: resolved.credentialId,
               discovery: storedDiscovery(body.kind, discovery, settings),
               ...sourceSyncDefaults(body.kind, body.schedule),
             },
@@ -277,6 +278,7 @@ export function registerOnboarding(
         ...source.data,
         secret: seal(resolved.config),
         hostedProvider: resolved.provider,
+        hostedConnectionId: resolved.credentialId,
         discovery: storedDiscovery(body.kind, discovery, resolved.config),
         ...sourceSyncDefaults(body.kind, body.schedule),
       });

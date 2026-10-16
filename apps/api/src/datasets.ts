@@ -7,7 +7,7 @@ import { resource, transaction, now, type Store } from "./store.js";
 import type { Resource } from "../../../packages/shared/src/index.js";
 import {
   datasetTable,
-  datasetAliases,
+  datasetNameAliases,
 } from "../../../packages/shared/src/index.js";
 import { assert, digest } from "./security.js";
 import { SAMPLE_SET, sampleDatasets } from "./sample-data.js";
@@ -203,7 +203,7 @@ export async function datasetInputs(
     results.push({
       table: datasetTable(id),
       version: ds.data.activeVersion as string,
-      aliases: datasetAliases(ds.name),
+      aliases: datasetNameAliases(ds),
     });
   }
   return results;

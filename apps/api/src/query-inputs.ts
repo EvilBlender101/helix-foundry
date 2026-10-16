@@ -1,7 +1,7 @@
 import type { Resource } from "../../../packages/shared/src/index.js";
 import {
   datasetTable,
-  datasetAliases,
+  datasetNameAliases,
 } from "../../../packages/shared/src/index.js";
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -133,7 +133,7 @@ export function queryInputs(
   datasets: Map<string, Resource>,
 ): string[] {
   sql = referenceSql(sql);
-  const names = (id: string) => datasetAliases(datasets.get(id)!.name);
+  const names = (id: string) => datasetNameAliases(datasets.get(id)!);
   const declared = listed.map((ref) => {
     if (datasets.has(ref)) return ref;
     const matches = [...datasets.keys()].filter(

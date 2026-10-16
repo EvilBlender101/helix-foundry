@@ -270,6 +270,32 @@ export function jsonSafe(value: unknown): any {
   );
 }
 
+// DELETE /sources/:id and DELETE /datasets/:id: the ids removed, how many
+// snapshot versions went, and how many saved connection credentials no
+// remaining source used.
+export type DataRemoval = {
+  sources: string[];
+  datasets: string[];
+  versions: number;
+  credentials: number;
+};
+// A dataset's aliases under its name and the names it had before a rename,
+// so SQL written against an earlier name still reads it.
+export function datasetNameAliases(d: {
+  name: string;
+  data: Record<string, any>;
+}) {
+  const former: string[] = Array.isArray(d.data.formerNames)
+    ? d.data.formerNames
+    : [];
+  return [
+    ...new Map(
+      [d.name, ...former]
+        .flatMap(datasetAliases)
+        .map((x) => [x.toLowerCase(), x]),
+    ).values(),
+  ];
+}
 export function datasetAliases(name: string) {
   return [
     ...new Map(

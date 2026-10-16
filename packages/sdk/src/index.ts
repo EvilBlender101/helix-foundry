@@ -14,6 +14,7 @@ import type {
   PlanetScaleToken,
   ApiTokenMetadata,
   ConnectedSourceInput,
+  DataRemoval,
 } from "@helix-foundry/shared";
 export type {
   Bundle,
@@ -31,6 +32,7 @@ export type {
   PlanetScaleToken,
   ApiTokenMetadata,
   ConnectedSourceInput,
+  DataRemoval,
 };
 export class FoundryError extends Error {
   constructor(
@@ -205,6 +207,44 @@ export class FoundryClient {
   }
   sync(sourceId: string) {
     return this.request<Resource>("/sources/" + sourceId + "/sync", {});
+  }
+  // `connectionName` renames every source of the source's connection.
+  renameSource(
+    sourceId: string,
+    change: { name?: string; connectionName?: string },
+  ) {
+    return this.request<Resource>(
+      "/sources/" + encodeURIComponent(sourceId),
+      change,
+      "PATCH",
+    );
+  }
+  // Removes the source, its dataset and snapshots; `connection` removes every
+  // source of its connection.
+  deleteSource(sourceId: string, options: { connection?: boolean } = {}) {
+    return this.request<DataRemoval>(
+      "/sources/" + encodeURIComponent(sourceId),
+      options,
+      "DELETE",
+    );
+  }
+  updateDataset(
+    datasetId: string,
+    change: { name?: string; description?: string },
+  ) {
+    return this.request<Resource>(
+      "/datasets/" + encodeURIComponent(datasetId),
+      change,
+      "PATCH",
+    );
+  }
+  // For a dataset without a source, such as an upload.
+  deleteDataset(datasetId: string) {
+    return this.request<DataRemoval>(
+      "/datasets/" + encodeURIComponent(datasetId),
+      {},
+      "DELETE",
+    );
   }
   build(goal: string, parentId?: string) {
     return this.request<Resource>("/assistant/runs", { goal, parentId });

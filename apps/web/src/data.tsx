@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { api, relative, number } from "./api";
 import { paths } from "./paths";
@@ -12,6 +12,12 @@ import {
   AskButton,
   DataTable,
 } from "./ui";
+import { Button } from "./kit";
+import {
+  DeleteDataDialog,
+  RenameDialog,
+  type DeleteTarget,
+} from "./areas/data/manage";
 import type { Resource } from "../../../packages/shared/src";
 export default function DataPage() {
   const { id } = useWorkspace(),
@@ -51,7 +57,10 @@ function DatasetDetail({
       versionId: d.data.activeVersion,
       offset: 0,
     }),
-    [selectedVersion, setSelectedVersion] = useState<string>();
+    [selectedVersion, setSelectedVersion] = useState<string>(),
+    [renaming, setRenaming] = useState(false),
+    [deleting, setDeleting] = useState<DeleteTarget | null>(null),
+    navigate = useNavigate();
   const versionId = selectedVersion || d.data.activeVersion;
   // A page belongs to the snapshot it was turned on. When a refresh replaces
   // the current snapshot, its rows start again from the first page; a chosen
@@ -351,7 +360,52 @@ function DatasetDetail({
             </Link>
           )}
         </div>
+        {role !== "viewer" && !d.data.generation && (
+          <section className="dataset-manage" aria-label="Manage dataset">
+            <h3>Manage</h3>
+            <div className="buttons">
+              <Button onClick={() => setRenaming(true)}>Rename</Button>
+              {(!source || role === "owner") && (
+                <Button
+                  variant="danger"
+                  onClick={() =>
+                    setDeleting(
+                      source
+                        ? {
+                            title: d.name,
+                            path: `/sources/${source.id}`,
+                            sources: [source],
+                            datasets: [d],
+                          }
+                        : {
+                            title: d.name,
+                            path: `/datasets/${d.id}`,
+                            sources: [],
+                            datasets: [d],
+                          },
+                    )
+                  }
+                >
+                  {source ? "Delete source and dataset" : "Delete dataset"}
+                </Button>
+              )}
+            </div>
+          </section>
+        )}
       </details>
+      {renaming && (
+        <RenameDialog
+          target={{ kind: "dataset", dataset: d }}
+          onClose={() => setRenaming(false)}
+        />
+      )}
+      {deleting && (
+        <DeleteDataDialog
+          target={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => navigate(paths.data(), { replace: true })}
+        />
+      )}
     </>
   );
 }

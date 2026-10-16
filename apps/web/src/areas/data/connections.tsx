@@ -1,15 +1,30 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, Plus, RefreshCw } from "lucide-react";
+import {
+  ArrowRight,
+  Ellipsis,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { api, number, relative } from "../../api";
 import { paths } from "../../paths";
 import { useWorkspace, useResources, useAction } from "../../ui";
 import { ConnectData } from "../../connect-data";
 import {
+  DeleteDataDialog,
+  RenameDialog,
+  type DeleteTarget,
+  type RenameTarget,
+} from "./manage";
+import {
   Button,
   ButtonLink,
+  DropdownMenu,
   EmptyState,
+  MenuItem,
   Page,
   PageHeader,
   SearchInput,
@@ -28,6 +43,8 @@ type Card = {
   logo: string;
   kind: "source" | "sample" | "files" | "pipeline";
   source?: Resource;
+  // Every source of the connection.
+  sources: Resource[];
   datasets: Resource[];
 };
 const SHOWN = 6;
@@ -63,7 +80,9 @@ export function DataOverview() {
     new URLSearchParams(location.search).has("add"),
   );
   const [search, setSearch] = useState(""),
-    [expanded, setExpanded] = useState<Set<string>>(new Set());
+    [expanded, setExpanded] = useState<Set<string>>(new Set()),
+    [renaming, setRenaming] = useState<RenameTarget | null>(null),
+    [deleting, setDeleting] = useState<DeleteTarget | null>(null);
   const cards = new Map<string, Card>();
   for (const s of sources.data?.items || []) {
     const key = s.data.connectionId || s.id;
@@ -74,8 +93,10 @@ export function DataOverview() {
         logo: connectorOf(s),
         kind: "source",
         source: s,
+        sources: [],
         datasets: [],
       });
+    cards.get(key)!.sources.push(s);
   }
   for (const d of datasets.data?.items || []) {
     const source = (sources.data?.items || []).find(
@@ -99,6 +120,7 @@ export function DataOverview() {
               kind: "sample",
             }
           : { name: "Files and API", logo: "upload", kind: "files" }),
+      sources: [],
       datasets: [],
     };
     card.datasets.push(d);
@@ -298,6 +320,52 @@ export function DataOverview() {
                       Refresh
                     </Button>
                   )}
+                  {c.source && role !== "viewer" && (
+                    <DropdownMenu
+                      label={`More for ${c.name}`}
+                      align="end"
+                      triggerClassName="hf-btn hf-btn--ghost hf-btn--sm hf-btn--icon"
+                      trigger={<Ellipsis size={14} aria-hidden />}
+                    >
+                      <MenuItem
+                        icon={Pencil}
+                        onSelect={() =>
+                          setRenaming({
+                            kind: "source",
+                            source: c.source!,
+                            connection: c.sources.length > 1,
+                            name: c.name,
+                          })
+                        }
+                      >
+                        Rename
+                      </MenuItem>
+                      {role === "owner" && (
+                        <MenuItem
+                          icon={Trash2}
+                          danger
+                          onSelect={() =>
+                            setDeleting({
+                              title: c.name,
+                              path: `/sources/${c.source!.id}`,
+                              body: { connection: c.sources.length > 1 },
+                              sources: c.sources,
+                              datasets:
+                                datasets.data?.items.filter((d: Resource) =>
+                                  c.sources.some(
+                                    (s) =>
+                                      s.id === d.data.sourceId ||
+                                      s.data.datasetId === d.id,
+                                  ),
+                                ) || [],
+                            })
+                          }
+                        >
+                          Delete
+                        </MenuItem>
+                      )}
+                    </DropdownMenu>
+                  )}
                   {c.source && (
                     <ButtonLink
                       size="sm"
@@ -315,6 +383,12 @@ export function DataOverview() {
         </div>
       )}
       {picker && <ConnectData onClose={() => setPicker(false)} />}
+      {renaming && (
+        <RenameDialog target={renaming} onClose={() => setRenaming(null)} />
+      )}
+      {deleting && (
+        <DeleteDataDialog target={deleting} onClose={() => setDeleting(null)} />
+      )}
     </Page>
   );
 }

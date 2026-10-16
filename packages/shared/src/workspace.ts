@@ -126,6 +126,23 @@ export function describeActivity(r: Describable): ActivityItem {
           title: d.goal || r.name,
           ref: { runId: r.id },
         };
+  if (r.kind === "audit" && (d.change === "rename" || d.change === "delete"))
+    return {
+      ...base,
+      status: "succeeded",
+      error: null,
+      kind: "edit",
+      label: d.change === "delete" ? "Data deleted" : "Data renamed",
+      title: r.name,
+      // A deleted source or dataset has nothing left to open.
+      ref:
+        d.change === "rename"
+          ? {
+              ...(d.sourceId ? { sourceId: d.sourceId } : {}),
+              ...(d.datasetId ? { datasetId: d.datasetId } : {}),
+            }
+          : {},
+    };
   if (r.kind === "audit") {
     const publish = !!d.proposalId && !d.objectId;
     const logicalId =
